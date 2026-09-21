@@ -1,0 +1,6 @@
+{
+  "uuid": "gnome-launchpad@mihierkansal.github.io",
+  "name": "macOS-inspired launchpad for GNOME",
+  "description": "Simple and fast app launcher that mimics macOS Launchpad.",
+  "shell-version": [ "50", "51", "52" ]
+}
