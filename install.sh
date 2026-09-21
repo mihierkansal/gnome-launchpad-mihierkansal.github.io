@@ -1,0 +1,1 @@
+rsync -a --exclude='.git' ./ ~/.local/share/gnome-shell/extensions/gnome-launchpad@mihierkansal.github.io/

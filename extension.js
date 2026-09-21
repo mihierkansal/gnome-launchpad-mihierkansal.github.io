@@ -11,7 +11,7 @@ import Shell from "gi://Shell";
 import { AppsMixin } from "./apps.js";
 import { ReorderMixin } from "./reorder.js";
 
-export default class FullscreenFadeGridExtension extends Extension {
+export default class GnomeLaunchpadExtension extends Extension {
   enable() {
     this._overlay = null;
 
@@ -61,7 +61,7 @@ export default class FullscreenFadeGridExtension extends Extension {
 
     this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(
       `<node>
-                <interface name="org.gnome.Shell.Extensions.FullscreenFadeGrid">
+                <interface name="org.gnome.Shell.Extensions.GnomeLaunchpad">
                     <method name="Toggle" />
                 </interface>
             </node>`,
@@ -70,7 +70,7 @@ export default class FullscreenFadeGridExtension extends Extension {
 
     this._dbusImpl.export(
       Gio.DBus.session,
-      "/org/gnome/Shell/Extensions/FullscreenFadeGrid",
+      "/org/gnome/Shell/Extensions/GnomeLaunchpad",
     );
   }
 
@@ -474,7 +474,7 @@ export default class FullscreenFadeGridExtension extends Extension {
 }
 
 Object.assign(
-  FullscreenFadeGridExtension.prototype,
+  GnomeLaunchpadExtension.prototype,
   WallpaperMixin,
   SwipeMixin,
   GridMixin,

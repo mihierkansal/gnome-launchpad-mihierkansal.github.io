@@ -1,1 +1,1 @@
-busctl --user call org.gnome.Shell /org/gnome/Shell/Extensions/FullscreenFadeGrid org.gnome.Shell.Extensions.FullscreenFadeGrid Toggle
+busctl --user call org.gnome.Shell /org/gnome/Shell/Extensions/GnomeLaunchpad org.gnome.Shell.Extensions.GnomeLaunchpad Toggle

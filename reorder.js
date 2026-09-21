@@ -9,10 +9,7 @@ const LIFT_DURATION = 120;
 const DROP_DURATION = 200;
 
 function _getOrderDir() {
-  return GLib.build_filenamev([
-    GLib.get_user_config_dir(),
-    "fullscreen-fade-grid",
-  ]);
+  return GLib.build_filenamev([GLib.get_user_config_dir(), "gnome-launchpad"]);
 }
 
 function _getOrderPath() {
@@ -67,7 +64,7 @@ export const ReorderMixin = {
         null,
       );
     } catch (e) {
-      logError(e, "FullscreenFadeGrid: unable to save app order");
+      logError(e, "GnomeLaunchpad: unable to save app order");
     }
   },
 
@@ -127,8 +124,7 @@ export const ReorderMixin = {
 
     // During drag, _currentQuery is always empty, so
     // _recomputePageSlots assigns sequential positions.
-    let globalIdx =
-      targetPage * this._itemsPerPage + row * this._maxCols + col;
+    let globalIdx = targetPage * this._itemsPerPage + row * this._maxCols + col;
     if (globalIdx < 0) return -1;
 
     // Clamp to the last valid item so the drag doesn't
@@ -176,10 +172,11 @@ export const ReorderMixin = {
     this._dragOrigIdx = this._allItems.indexOf(item);
     this._dragCurrentIdx = this._dragOrigIdx;
     return Clutter.EVENT_STOP;
-  },    _handleDragMotion(event) {
-        if (!this._dragItem) return Clutter.EVENT_PROPAGATE;
-        if (this._currentQuery !== '') return Clutter.EVENT_PROPAGATE;
-        const [rootX, rootY] = event.get_coords();
+  },
+  _handleDragMotion(event) {
+    if (!this._dragItem) return Clutter.EVENT_PROPAGATE;
+    if (this._currentQuery !== "") return Clutter.EVENT_PROPAGATE;
+    const [rootX, rootY] = event.get_coords();
 
     if (!this._dragThresholdMet) {
       const dx = rootX - this._dragStartRootX;

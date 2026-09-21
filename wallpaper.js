@@ -56,9 +56,7 @@ export const WallpaperMixin = {
 
       return this._wallpaperSettings.get_string("picture-uri");
     } catch (e) {
-      console.error(
-        `FullscreenFadeGrid: unable to read wallpaper settings: ${e}`,
-      );
+      console.error(`GnomeLaunchpad: unable to read wallpaper settings: ${e}`);
 
       return null;
     }
@@ -81,7 +79,7 @@ export const WallpaperMixin = {
       return file;
     } catch (e) {
       console.error(
-        `FullscreenFadeGrid: unable to open wallpaper URI ${uri}: ${e}`,
+        `GnomeLaunchpad: unable to open wallpaper URI ${uri}: ${e}`,
       );
 
       return null;
@@ -121,7 +119,7 @@ export const WallpaperMixin = {
     const path = file.get_path();
 
     if (!path) {
-      console.error("FullscreenFadeGrid: wallpaper is not a local file");
+      console.error("GnomeLaunchpad: wallpaper is not a local file");
       return;
     }
 
@@ -130,7 +128,7 @@ export const WallpaperMixin = {
     try {
       pixbuf = GdkPixbuf.Pixbuf.new_from_file(path);
     } catch (e) {
-      console.error(`FullscreenFadeGrid: unable to load wallpaper: ${e}`);
+      console.error(`GnomeLaunchpad: unable to load wallpaper: ${e}`);
       return;
     }
 
@@ -226,7 +224,7 @@ export const WallpaperMixin = {
         }
       }
     } catch (e) {
-      console.error(`FullscreenFadeGrid: unable to scale wallpaper: ${e}`);
+      console.error(`GnomeLaunchpad: unable to scale wallpaper: ${e}`);
 
       renderedPixbuf = pixbuf;
     }
@@ -272,9 +270,7 @@ export const WallpaperMixin = {
         renderedPixbuf.get_rowstride(),
       );
     } catch (e) {
-      console.error(
-        `FullscreenFadeGrid: unable to create wallpaper texture: ${e}`,
-      );
+      console.error(`GnomeLaunchpad: unable to create wallpaper texture: ${e}`);
       return;
     }
 
@@ -347,7 +343,7 @@ export const WallpaperMixin = {
       );
     } catch (e) {
       console.error(
-        `FullscreenFadeGrid: unable to monitor wallpaper settings: ${e}`,
+        `GnomeLaunchpad: unable to monitor wallpaper settings: ${e}`,
       );
     }
 
