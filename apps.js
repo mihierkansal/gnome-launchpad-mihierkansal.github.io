@@ -118,6 +118,13 @@ export const AppsMixin = {
 
       label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
 
+      /* Set centering directly on the ClutterText: relying on
+       * the CSS 'text-align' alone leaves a frame where the
+       * theme node is not yet re-resolved after a reparent,
+       * and the text renders left-aligned (visible flicker
+       * while icons are shuffled between pages). */
+      label.clutter_text.set_line_alignment(Pango.Alignment.CENTER);
+
       btnBox.add_child(icon);
       btnBox.add_child(label);
 

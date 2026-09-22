@@ -6,7 +6,7 @@ const BUTTON_HEIGHT = 135;
 const COL_SPACING = 24;
 const ROW_SPACING = 20;
 
-const SWIPE_ANIMATION_DURATION = 180;
+const SWIPE_ANIMATION_DURATION = 300;
 
 export const GridMixin = {
   _updateLayoutSizes() {
@@ -263,6 +263,7 @@ export const GridMixin = {
 
   _rebuildDots() {
     this._dotsContainer.destroy_all_children();
+    this._dotInners = [];
 
     if (this._visiblePageCount <= 1) {
       this._dotsContainer.hide();
@@ -273,30 +274,80 @@ export const GridMixin = {
 
     for (let i = 0; i < this._visiblePageCount; i++) {
       const pageIdx = i;
-      const isActive = i === this._currentPageIdx;
-
-      const dotBg = isActive
-        ? "rgba(255,255,255,0.8)"
-        : "rgba(255,255,255,0.2)";
 
       const dot = new St.Button({
         reactive: true,
         can_focus: false,
         style: `
-                        width: 7px;
-                        height: 7px;
-                        border-radius: 5px;
-                        background-color: ${dotBg};
+                        width: 16px;
+                        height: 16px;
+                        border-radius: 11px;
+                        background-color: transparent;
+                        padding: 0;
                     `,
       });
 
-      dot.connect("button-release-event", () => {
+      const dotInner = new St.Widget({
+        style: `
+                        width: 7px;
+                        height: 7px;
+                        border-radius: 4px;
+                        background-color: rgba(255,255,255,0.2);
+                    `,
+        x_align: Clutter.ActorAlign.CENTER,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      dot.set_child(dotInner);
+
+      /* 'clicked' fires for mouse clicks and touch taps alike
+       * (St.Button's built-in click gesture handles touch). */
+      dot.connect("clicked", () => {
         this._scrollToPage(pageIdx, true);
-        return Clutter.EVENT_STOP;
       });
 
       this._dotsContainer.add_child(dot);
+      this._dotInners.push(dotInner);
     }
+
+    this._updateSwipeDots(0);
+  },
+
+  /* Set dot opacities proportional to swipe progress.
+   * progress > 0 means swiping toward the next page.
+   * The current and target dots cross-fade between the
+   * dim (0.2) and lit (0.8) states; alphas are clamped
+   * to [0.2, 0.8] so no dot can ever vanish mid-swipe. */
+  _updateSwipeDots(progress) {
+    if (!this._dotInners || this._dotInners.length === 0) {
+      return;
+    }
+
+    const page = Math.max(
+      0,
+      Math.min(this._currentPageIdx || 0, this._dotInners.length - 1),
+    );
+    const p = Math.max(-1, Math.min(1, Number(progress) || 0));
+
+    this._dotInners.forEach((inner, i) => {
+      let alpha = 0.2;
+
+      if (i === page) {
+        alpha = 0.8 - 0.6 * Math.abs(p);
+      } else if (i === page + 1 && p > 0) {
+        alpha = 0.2 + 0.6 * p;
+      } else if (i === page - 1 && p < 0) {
+        alpha = 0.2 + 0.6 * Math.abs(p);
+      }
+
+      alpha = Math.max(0.2, Math.min(0.8, alpha));
+
+      inner.style = `
+                        width: 7px;
+                        height: 7px;
+                        border-radius: 4px;
+                        background-color: rgba(255,255,255,${alpha});
+                    `;
+    });
   },
 
   _updateDots() {

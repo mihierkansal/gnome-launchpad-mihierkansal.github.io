@@ -50,12 +50,21 @@ export default class GnomeLaunchpadExtension extends Extension {
     this._availableHeight = 0;
     this._pitchX = 0;
     this._pitchY = 0;
-
     this._swipeActive = false;
     this._swipeType = null;
     this._swipeStartX = 0;
+    this._swipeLastTouchX = 0;
     this._swipeOffset = 0;
     this._swipeTouchSequence = null;
+    this._scrollReceived = false;
+    this._swipeFinishTime = 0;
+    this._swipeScrollEvents = [];
+    this._touchCount = 0;
+    this._touchMulti = false;
+    this._touchDownX = 0;
+    this._touchDownY = 0;
+    this._touchDownTime = 0;
+    this._touchCancelled = false;
 
     this._initReorder();
 
@@ -329,16 +338,44 @@ export default class GnomeLaunchpadExtension extends Extension {
       style: "margin-top: 28px;",
     });
 
+    /* Custom search box: icon + entry in one container so the
+     * spacing and vertical centering are fully under our
+     * control (StEntry's built-in primary-icon layout is
+     * theme-driven and can't be tuned inline). */
+    this._searchBox = new St.BoxLayout({
+      orientation: Clutter.Orientation.HORIZONTAL,
+      y_align: Clutter.ActorAlign.CENTER,
+      style: `
+                        width: 18em;
+                        padding: 7px 14px;
+                        spacing: 8px;
+                        background-color: rgba(255,255,255,0.12);
+                        border-radius: 999px;
+                    `,
+    });
+
+    this._searchIcon = new St.Icon({
+      icon_name: "edit-find-symbolic",
+      icon_size: 14,
+      y_align: Clutter.ActorAlign.CENTER,
+      style: "color: rgba(255,255,255,0.65);",
+    });
+
     this._searchEntry = new St.Entry({
       hint_text: "Search applications...",
       can_focus: true,
-      style_class: "search-entry",
+      x_expand: true,
+      y_align: Clutter.ActorAlign.CENTER,
       style:
-        "width: 15em; " +
-        "min-width: 15em; " +
-        "max-width: 15em; " +
-        "height: auto;",
+        "background-color: transparent; " +
+        "border: none; " +
+        "box-shadow: none; " +
+        "padding: 0; " +
+        "font-size: 11pt;",
     });
+
+    this._searchBox.add_child(this._searchIcon);
+    this._searchBox.add_child(this._searchEntry);
 
     this._searchEntry.clutter_text.connect("text-changed", () => {
       this._filterGrid(this._searchEntry.text.toLowerCase());
@@ -362,7 +399,7 @@ export default class GnomeLaunchpadExtension extends Extension {
       },
     );
 
-    entryCenteringBox.add_child(this._searchEntry);
+    entryCenteringBox.add_child(this._searchBox);
 
     this._mainBox.add_child(entryCenteringBox);
 
@@ -378,7 +415,7 @@ export default class GnomeLaunchpadExtension extends Extension {
       orientation: Clutter.Orientation.HORIZONTAL,
       x_align: Clutter.ActorAlign.CENTER,
       style:
-        "spacing: 12px; " +
+        "spacing: 4px; " +
         "padding: 10px; " +
         "margin-bottom: 20px; " +
         "margin-left: 80px; " +
@@ -393,11 +430,46 @@ export default class GnomeLaunchpadExtension extends Extension {
 
     this._overlay.add_child(this._mainBox);
 
-    // During a button press the capture phase is
-    // blocked, so captured-event never fires, so we use event.
-    this._capturedEventId = this._overlay.connect("event", (_actor, event) =>
-      this._handleCapturedEvent(event),
+    this._dragLayer = new Clutter.Actor({
+      reactive: false,
+      x_expand: true,
+      y_expand: true,
+      x_align: Clutter.ActorAlign.FILL,
+      y_align: Clutter.ActorAlign.FILL,
+    });
+    this._overlay.add_child(this._dragLayer);
+
+    /* Touch events MUST use captured-event (capture phase)
+       so TOUCH_END reaches us before child actors consume it.
+       This is how GNOME's own app grid handles trackpad lift. */
+    this._capturedEventId = this._overlay.connect(
+      "captured-event",
+      (_actor, event) => {
+        const type = event.type();
+        if (
+          type === Clutter.EventType.TOUCH_BEGIN ||
+          type === Clutter.EventType.TOUCH_UPDATE ||
+          type === Clutter.EventType.TOUCH_END ||
+          type === Clutter.EventType.TOUCH_CANCEL
+        ) {
+          return this._handleCapturedEvent(event);
+        }
+        return Clutter.EVENT_PROPAGATE;
+      },
     );
+
+    this._bubbleEventId = this._overlay.connect("event", (_actor, event) => {
+      const type = event.type();
+      if (
+        type === Clutter.EventType.TOUCH_BEGIN ||
+        type === Clutter.EventType.TOUCH_UPDATE ||
+        type === Clutter.EventType.TOUCH_END ||
+        type === Clutter.EventType.TOUCH_CANCEL
+      ) {
+        return Clutter.EVENT_PROPAGATE;
+      }
+      return this._handleCapturedEvent(event);
+    });
 
     this._overlay.connect("key-press-event", (_actor, event) => {
       const symbol = event.get_key_symbol();
@@ -447,8 +519,12 @@ export default class GnomeLaunchpadExtension extends Extension {
 
     if (this._overlay && this._capturedEventId) {
       this._overlay.disconnect(this._capturedEventId);
-
       this._capturedEventId = 0;
+    }
+
+    if (this._overlay && this._bubbleEventId) {
+      this._overlay.disconnect(this._bubbleEventId);
+      this._bubbleEventId = 0;
     }
 
     this._disconnectDragEvents();
@@ -468,6 +544,9 @@ export default class GnomeLaunchpadExtension extends Extension {
     this._searchEntry = null;
     this._pagesContainer = null;
     this._dotsContainer = null;
+    this._dragLayer = null;
+    this._searchBox = null;
+    this._searchIcon = null;
 
     this._pages = [];
   }

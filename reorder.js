@@ -1,5 +1,4 @@
 import Clutter from "gi://Clutter";
-import St from "gi://St";
 import GLib from "gi://GLib";
 import Gio from "gi://Gio";
 
@@ -26,12 +25,11 @@ export const ReorderMixin = {
     this._dragCurrentIdx = -1;
     this._dragThresholdMet = false;
     this._dragPressTime = 0;
-    this._dragOrigParent = null;
-    this._dragOrigPos = [0, 0];
-    this._dragOrigStagePos = [0, 0];
     this._dragOffsetX = 0;
     this._dragOffsetY = 0;
     this._lastEdgeScrollTime = 0;
+    this._dragLastRootX = 0;
+    this._dragLastRootY = 0;
     this._appOrder = this._loadOrder();
   },
 
@@ -84,12 +82,19 @@ export const ReorderMixin = {
     return [stageX - ovStageX, stageY - ovStageY];
   },
 
+  /* On-screen (visual) position of a grid cell.  The dragged
+   * icon's get_transformed_position() is visual too, so the drop
+   * offset computed from the two is exact and the icon glides
+   * into its slot from wherever it is under the cursor.  Do NOT
+   * strip the container's translation here: for pages beyond the
+   * first that offset is a full page width, and the glide would
+   * start one page away.  Pointer-to-cell mapping
+   * (_dropTargetIndex) uses the same translated position. */
   _cellStagePos(pageIdx, col, row) {
-    const [pcStageX, pcStageY] =
-      this._pagesContainer.get_transformed_position();
+    const [sx, sy] = this._pagesContainer.get_transformed_position();
     return [
-      pcStageX + pageIdx * this._pageWidth + this._cellX(col),
-      pcStageY + this._cellY(row),
+      sx + pageIdx * this._pageWidth + this._cellX(col),
+      sy + this._cellY(row),
     ];
   },
 
@@ -98,6 +103,8 @@ export const ReorderMixin = {
    * the grid layout.
    */
   _dropTargetIndex(stageX, stageY) {
+    /* Translated position: pages visually move during a slide,
+     * and the target must follow what is under the pointer. */
     const [pcStageX, pcStageY] =
       this._pagesContainer.get_transformed_position();
 
@@ -207,16 +214,37 @@ export const ReorderMixin = {
     return Clutter.EVENT_STOP;
   },
 
+  /**
+   * Called when the visible page changes during an active drag
+   * (mouse wheel or edge scroll).  Re-pins the dragged icon under
+   * the cursor relative to its parent page's final position.
+   */
+  _onPageChangedDuringDrag() {
+    if (!this._dragItem || !this._dragActive) return;
+    this._syncDraggedActor(this._dragLastRootX, this._dragLastRootY);
+  },
+
   _startDragLift(firstRootX, firstRootY) {
     const actor = this._dragItem.actor;
-    const parent = actor.get_parent();
-    this._dragOrigParent = parent;
-    this._dragOrigPos = [actor.x, actor.y];
     const [asx, asy] = actor.get_transformed_position();
-    this._dragOrigStagePos = [asx, asy];
     this._dragOffsetX = asx - firstRootX;
     this._dragOffsetY = asy - firstRootY;
-    parent.set_child_above_sibling(actor, null);
+
+    /* Float the icon above everything . */
+    if (!this._dragLayer) {
+      return;
+    }
+
+    const parent = actor.get_parent();
+
+    if (parent) {
+      parent.remove_child(actor);
+    }
+
+    this._dragLayer.add_child(actor);
+
+    this._pinDraggedActorTo(firstRootX, firstRootY);
+
     actor.ease({
       scale_x: LIFT_SCALE,
       scale_y: LIFT_SCALE,
@@ -225,14 +253,29 @@ export const ReorderMixin = {
     });
   },
 
-  _updateDragPosition(rootX, rootY) {
+  /* Place the dragged icon under the cursor.  Coordinates are
+   * drag-layer-relative; the layer fills the overlay, so its
+   * origin is the overlay's origin. */
+  _pinDraggedActorTo(rootX, rootY) {
+    if (!this._dragItem || !this._dragLayer) return;
+
     const actor = this._dragItem.actor;
-    const parent = actor.get_parent();
-    const [psx, psy] = parent.get_transformed_position();
+    const [ox, oy] = this._dragLayer.get_transformed_position();
+
     actor.set_position(
-      rootX + this._dragOffsetX - psx,
-      rootY + this._dragOffsetY - psy,
+      rootX + this._dragOffsetX - ox,
+      rootY + this._dragOffsetY - oy,
     );
+  },
+
+  _updateDragPosition(rootX, rootY) {
+    /* Remember the cursor position so page changes triggered
+     * without motion (mouse wheel, edge scroll) can re-pin the
+     * dragged icon afterwards. */
+    this._dragLastRootX = rootX;
+    this._dragLastRootY = rootY;
+
+    this._pinDraggedActorTo(rootX, rootY);
 
     this._checkEdgeScroll(rootX, rootY);
 
@@ -241,6 +284,14 @@ export const ReorderMixin = {
     if (newIdx >= 0 && newIdx !== this._dragCurrentIdx) {
       this._dragCurrentIdx = this._reflow(this._dragCurrentIdx, newIdx);
     }
+  },
+
+  _syncDraggedActor(rootX, rootY) {
+    if (!this._dragItem || !this._dragActive) {
+      return;
+    }
+
+    this._pinDraggedActorTo(rootX, rootY);
   },
 
   _checkEdgeScroll(rootX, rootY) {
@@ -260,6 +311,7 @@ export const ReorderMixin = {
       this._lastEdgeScrollTime = now;
       this._currentPageIdx = tp;
       this._setPageTranslation(tp, true);
+      this._syncDraggedActor(rootX, rootY);
     }
   },
 
@@ -269,10 +321,11 @@ export const ReorderMixin = {
     this._allItems.splice(toIdx, 0, item);
     this._recomputePageSlots();
 
-    const draggedActor = this._dragItem ? this._dragItem.actor : null;
-
     this._allItems.forEach((i) => {
-      if (!i.actor.visible) return;
+      /* The dragged icon floats on the overlay during the drag;
+       * never reparent or move it here. */
+      if (i === this._dragItem || !i.actor.visible) return;
+
       const tp = this._getOrCreatePage(
         i.pageIdx,
         this._pageWidth,
@@ -283,18 +336,13 @@ export const ReorderMixin = {
         if (cp) cp.remove_child(i.actor);
         tp.add_child(i.actor);
       }
-      if (i.actor !== draggedActor) {
-        i.actor.ease({
-          x: this._cellX(i.col),
-          y: this._cellY(i.row),
-          duration: 120,
-          mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-        });
-      }
+      i.actor.ease({
+        x: this._cellX(i.col),
+        y: this._cellY(i.row),
+        duration: 120,
+        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+      });
     });
-
-    if (draggedActor && draggedActor.get_parent())
-      draggedActor.get_parent().set_child_above_sibling(draggedActor, null);
 
     this._updateDots();
     return toIdx;
@@ -316,55 +364,95 @@ export const ReorderMixin = {
 
   _endDrag() {
     const actor = this._dragItem.actor;
-    const origPage = this._dragOrigParent;
     const ti = this._dragCurrentIdx;
     const tp = Math.floor(ti / this._itemsPerPage);
     const li = ti % this._itemsPerPage;
     const tc = li % this._maxCols;
     const tr = Math.floor(li / this._maxCols);
-    const tpa = this._pages[tp] || origPage;
+    const tpa = this._getOrCreatePage(
+      tp,
+      this._pageWidth,
+      this._availableHeight,
+    );
+
+    /* Settle into the slot: reparent, pin the cell position,
+     * and keep the visual offset as a translation so the icon
+     * glides into place from wherever it currently is.  Both
+     * positions are read in visual (translated) stage coords,
+     * so the offset is correct even mid page slide. */
     const [tsx, tsy] = this._cellStagePos(tp, tc, tr);
-    const cp = actor.get_parent();
-    const [psx, psy] = cp.get_transformed_position();
+    const [asx, asy] = actor.get_transformed_position();
+
+    if (actor.get_parent() !== tpa) {
+      const cp = actor.get_parent();
+
+      if (cp) cp.remove_child(actor);
+      tpa.add_child(actor);
+    }
+
+    actor.set_position(this._cellX(tc), this._cellY(tr));
+    actor.translation_x = asx - tsx;
+    actor.translation_y = asy - tsy;
 
     actor.ease({
-      x: tsx - psx,
-      y: tsy - psy,
+      translation_x: 0,
+      translation_y: 0,
       scale_x: 1,
       scale_y: 1,
+      opacity: 255,
       duration: DROP_DURATION,
       mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
-      onComplete: () => {
-        if (cp !== tpa) {
-          cp.remove_child(actor);
-          tpa.add_child(actor);
-        }
-        actor.set_position(this._cellX(tc), this._cellY(tr));
-        actor.translation_x = 0;
-        actor.translation_y = 0;
-        this._saveOrder();
-      },
+      onComplete: () => this._layoutVisibleItems(),
     });
+
+    this._saveOrder();
+
     this._dragActive = false;
     this._dragItem = null;
   },
 
   _cancelDrag() {
     if (!this._dragItem) return;
-    const actor = this._dragItem.actor;
+    const item = this._dragItem;
+    const actor = item.actor;
+
     if (!this._dragThresholdMet) {
       this._dragItem = null;
       return;
     }
+
+    /* Return the icon to its current packed slot (reflow may
+       have moved it since the drag started). */
+    const tpa = this._getOrCreatePage(
+      item.pageIdx,
+      this._pageWidth,
+      this._availableHeight,
+    );
+    const [tsx, tsy] = this._cellStagePos(item.pageIdx, item.col, item.row);
+    const [asx, asy] = actor.get_transformed_position();
+
+    if (actor.get_parent() !== tpa) {
+      const cp = actor.get_parent();
+
+      if (cp) cp.remove_child(actor);
+      tpa.add_child(actor);
+    }
+
+    actor.set_position(this._cellX(item.col), this._cellY(item.row));
+    actor.translation_x = asx - tsx;
+    actor.translation_y = asy - tsy;
+
     actor.ease({
-      x: this._dragOrigPos[0],
-      y: this._dragOrigPos[1],
+      translation_x: 0,
+      translation_y: 0,
       scale_x: 1,
       scale_y: 1,
+      opacity: 255,
       duration: 120,
       mode: Clutter.AnimationMode.EASE_OUT_QUAD,
       onComplete: () => this._layoutVisibleItems(),
     });
+
     this._dragActive = false;
     this._dragItem = null;
   },
